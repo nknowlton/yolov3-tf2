@@ -1,6 +1,6 @@
 from absl import app, flags, logging
 from absl.flags import FLAGS
-
+import os
 import tensorflow as tf
 import numpy as np
 import cv2
@@ -24,7 +24,7 @@ flags.DEFINE_boolean('tiny', False, 'yolov3 or yolov3-tiny')
 flags.DEFINE_string('weights', './checkpoints/yolov3.tf',
                     'path to weights file')
 flags.DEFINE_string('classes', './data/coco.names', 'path to classes file')
-flags.DEFINE_string('logs', '', 'path to log directory')
+flags.DEFINE_string('logs','./','path to log directory (TensorBoard)')
 flags.DEFINE_enum('mode', 'fit', ['fit', 'eager_fit', 'eager_tf'],
                   'fit: model.fit, '
                   'eager_fit: model.fit(run_eagerly=True), '
@@ -39,7 +39,7 @@ flags.DEFINE_enum('transfer', 'none',
 flags.DEFINE_integer('size', 416, 'image size')
 flags.DEFINE_integer('epochs', 2, 'number of epochs')
 flags.DEFINE_integer('batch_size', 8, 'batch size')
-flags.DEFINE_float('learning_rate', 1e-3, 'learning rate')
+flags.DEFINE_float('learning_rate', 3e-4, 'learning rate')
 flags.DEFINE_integer('num_classes', 80, 'number of classes in the model')
 flags.DEFINE_integer('weights_num_classes', None, 'specify num class for `weights` file if different, '
                      'useful in transfer learning with different number of classes')
@@ -60,7 +60,7 @@ def main(_argv):
         anchors = yolo_anchors
         anchor_masks = yolo_anchor_masks
 
-    #train_dataset = dataset.load_fake_dataset()
+    train_dataset = dataset.load_fake_dataset()
     if FLAGS.dataset:
         train_dataset = dataset.load_tfrecord_dataset(
             FLAGS.dataset, FLAGS.classes, FLAGS.size)
@@ -72,7 +72,7 @@ def main(_argv):
     train_dataset = train_dataset.prefetch(
         buffer_size=tf.data.experimental.AUTOTUNE)
 
-    #val_dataset = dataset.load_fake_dataset()
+    val_dataset = dataset.load_fake_dataset()
     if FLAGS.val_dataset:
         val_dataset = dataset.load_tfrecord_dataset(
             FLAGS.val_dataset, FLAGS.classes, FLAGS.size)
@@ -80,6 +80,12 @@ def main(_argv):
     val_dataset = val_dataset.map(lambda x, y: (
         dataset.transform_images(x, FLAGS.size),
         dataset.transform_targets(y, anchors, anchor_masks, FLAGS.size)))
+
+    # Prepare Log Directory
+    if not os.path.exists(FLAGS.logs):
+        os.mkdir(FLAGS.logs)
+        logging.info("Log directory " , FLAGS.logs ,  " Created ")
+
 
     # Configure the model for transfer learning
     if FLAGS.transfer == 'none':
@@ -176,10 +182,10 @@ def main(_argv):
                       run_eagerly=(FLAGS.mode == 'eager_fit'))
 
         callbacks = [
-            ReduceLROnPlateau(verbose=1),
-            EarlyStopping(patience=3, verbose=1),
-            ModelCheckpoint('checkpoints/yolov3_train_{epoch}.tf',
-                            verbose=1, save_weights_only=True),
+            ReduceLROnPlateau(verbose=1,patience=5,factor=0.1),
+            EarlyStopping(patience=10, verbose=1),
+            ModelCheckpoint('checkpoints/yolov3_best_model.tf',
+                            verbose=1, save_weights_only=True, save_best_only=True),
             TensorBoard(log_dir= FLAGS.logs)
         ]
 
