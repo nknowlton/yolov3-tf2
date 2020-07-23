@@ -4,6 +4,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import (
+    Activation,
     Add,
     Concatenate,
     Conv2D,
@@ -16,6 +17,7 @@ from tensorflow.keras.layers import (
     BatchNormalization,
 )
 from tensorflow.keras.regularizers import l2
+from tensorflow.keras.utils import get_custom_objects
 from tensorflow.keras.losses import (
     binary_crossentropy,
     sparse_categorical_crossentropy
@@ -26,6 +28,7 @@ flags.DEFINE_integer('yolo_max_boxes', 100,
                      'maximum number of boxes per image')
 flags.DEFINE_float('yolo_iou_threshold', 0.5, 'iou threshold')
 flags.DEFINE_float('yolo_score_threshold', 0.5, 'score threshold')
+flags.DEFINE_boolean('useMish', False, 'Use Mish instead of LeakyRelu')
 
 yolo_anchors = np.array([(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),
                          (59, 119), (116, 90), (156, 198), (373, 326)],
@@ -36,6 +39,32 @@ yolo_tiny_anchors = np.array([(10, 14), (23, 27), (37, 58),
                               (81, 82), (135, 169),  (344, 319)],
                              np.float32) / 416
 yolo_tiny_anchor_masks = np.array([[3, 4, 5], [0, 1, 2]])
+
+class Mish(Activation):
+    '''
+    Mish Activation Function.
+    .. math::
+        mish(x) = x * tanh(softplus(x)) = x * tanh(ln(1 + e^{x}))
+    Shape:
+        - Input: Arbitrary. Use the keyword argument `input_shape`
+        (tuple of integers, does not include the samples axis)
+        when using this layer as the first layer in a model.
+        - Output: Same shape as the input.
+    Examples:
+        >>> X = Activation('Mish', name="conv1_act")(X_input)
+    '''
+
+    def __init__(self, activation, **kwargs):
+        super(Mish, self).__init__(activation, **kwargs)
+        self.__name__ = 'Mish'
+
+
+def mish(inputs):
+    return inputs * tf.math.tanh(tf.math.softplus(inputs))
+
+get_custom_objects().update({'Mish': Mish(mish)})
+
+
 
 
 def DarknetConv(x, filters, size, strides=1, batch_norm=True):
@@ -49,7 +78,10 @@ def DarknetConv(x, filters, size, strides=1, batch_norm=True):
                use_bias=not batch_norm, kernel_regularizer=l2(0.0005))(x)
     if batch_norm:
         x = BatchNormalization()(x)
-        x = LeakyReLU(alpha=0.1)(x)
+        if FLAGS.useMish:
+            x = Activation('Mish')(x)
+        else:
+            x = LeakyReLU(alpha=0.1)(x)
     return x
 
 
